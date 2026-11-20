@@ -6,8 +6,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/edgetx/edgetx-builder:latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -16,12 +14,15 @@ jobs:
 
       - name: Configure and Build
         run: |
-          mkdir build && cd build
-          cmake -DPCB=V16 -DTRANSLATIONS=RU -DCMAKE_BUILD_TYPE=Release ..
-          make -j$(nproc) firmware
+          sudo chmod -R 777 .
+          docker run --rm -v "${{ github.workspace }}:/src" -w /src ghcr.io/edgetx/edgetx-builder:latest bash -c "
+            mkdir -p build && cd build &&
+            cmake -DPCB=X10 -DPCBREV=V16 -DTRANSLATIONS=RU -DCMAKE_BUILD_TYPE=Release .. &&
+            make -j\$(nproc) firmware
+          "
 
       - name: Upload Firmware
         uses: actions/upload-artifact@v4
         with:
           name: v16-ru-firmware
-          path: build/arm-none-eabi/firmware.bin
+          path: build/**/firmware.bin
