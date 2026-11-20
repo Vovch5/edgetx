@@ -1,6 +1,14 @@
 ---
 name: Run tests and package firmware
 on:
+workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target PCB'
+        default: 'v16'
+      lang:
+        description: 'Language'
+        default: 'RU'
   push:
     branches:
       - 'main'
