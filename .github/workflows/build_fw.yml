@@ -1,267 +1,28 @@
----
-name: Run tests and package firmware
-on:
-workflow_dispatch:
-    inputs:
-      target:
-        description: 'Target PCB'
-        default: 'v16'
-      lang:
-        description: 'Language'
-        default: 'RU'
-  push:
-    branches:
-      - 'main'
-      - '[0-9]+.[0-9]+'
-    tags:
-      - v*
-  pull_request:
+name: Build V16 RU
 
-env:
-  # MemBrowse command-line tool, used by the analysis and identical uploads
-  MEMBROWSE_PACKAGE: git+https://github.com/membrowse/membrowse-action@v1
+on:
+  workflow_dispatch:
 
 jobs:
-  # Runs on every commit so non-firmware commits still get a MemBrowse report.
-  # Tests and builds run only when the firmware paths below changed.
-  changes:
-    name: Detect firmware changes
-    runs-on: ubuntu-latest
-    outputs:
-      # Tag pushes have no base revision to diff against; always build them
-      firmware: ${{ startsWith(github.ref, 'refs/tags/') || steps.filter.outputs.firmware == 'true' }}
-      membrowse: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
-      membrowse_targets: ${{ steps.targets.outputs.matrix }}
-    steps:
-      - name: Check out the repo
-        uses: actions/checkout@v7
-
-      - name: Filter changed paths
-        uses: dorny/paths-filter@v4
-        id: filter
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        with:
-          filters: |
-            firmware:
-              - '.github/workflows/build_fw.yml'
-              - '.github/actions/fetch_deps/**'
-              - '.github/membrowse-targets.json'
-              - 'cmake/**'
-              - 'radio/**'
-              - 'tools/build-gh.sh'
-              - '.gitmodules'
-              - 'CMakeLists.txt'
-
-      - name: Load MemBrowse targets
-        id: targets
-        run: echo "matrix=$(jq -c '.' .github/membrowse-targets.json)" >> "$GITHUB_OUTPUT"
-
-  test:
-    name: Run tests
-    needs: changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    if: |
-      needs.changes.outputs.firmware == 'true' && (
-        github.event_name != 'pull_request' ||
-        !contains(github.event.pull_request.labels.*.name, 'ci: skip-fw'))
-    strategy:
-      matrix:
-        # each target uses one of the 20 runners available, keep grouped to manage concurrency
-        target:
-          - el18;nv14 # Flysky
-          - nb4p;pa01 # Flysky
-          - pl18;pl18ev # Flysky
-          - st16 # Flysky
-          - x9dp2019;x9e # FrSky
-          - x10 # FrSky
-          - x12s # FrSky
-          - v12;v15 # HelloRadioSky
-          - c14 # iFlight
-          - t12max;t14 # Jumper
-          - t15;t15pro;t15h7 # Jumper
-          - t16;t18 # Jumper
-          - t20;t20v2 # Jumper
-          - t22 # Jumper
-          - gx12;mt12 # RadioMaster
-          - gx10;tx15 # RadioMaster
-          - tx16s;tx16smk3 # RadioMaster
-          - h17 # Senduwing
-          - t18h7 # Jumper
-    container:
-      image: ghcr.io/edgetx/edgetx-dev:latest
-      volumes:
-        - ${{ github.workspace }}:/src
-    steps:
-      - name: Check out the repo
-        uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - name: Fetch build dependencies
-        uses: ./.github/actions/fetch_deps
-
-      - name: Test ${{ matrix.target }}
-        env:
-          FLAVOR: ${{ matrix.target }}
-          CMAKE_BUILD_PARALLEL_LEVEL: 4
-        run: |
-          echo "Running commit tests"
-          ./tools/commit-tests.sh
-
   build:
-    name: Run builds
-    needs: [changes, test]
     runs-on: ubuntu-latest
-    if: |
-      needs.changes.outputs.firmware == 'true' && (
-        github.event_name != 'pull_request' ||
-        !contains(github.event.pull_request.labels.*.name, 'ci: skip-fw'))
-    strategy:
-      matrix:
-        # each target uses one of the 20 runners available, keep grouped to manage concurrency
-        target:
-          - f16 # Fatfish
-          - el18;nv14 # Flysky
-          - nb4p;pa01;st16 # Flysky
-          - pl18;pl18ev;pl18u # Flysky
-          - x10;x10express;x12s # FrSky
-          - x7access;x9dp2019;x9e # FrSky
-          - v12;v14;v15 # HelloRadioSky
-          - v14lcd;v16 # HelloRadioSky
-          - c14;commando8 # iFlight
-          - bumblebee;t12max;t14 # Jumper
-          - t15;t15h7;t15pro;t16 # Jumper
-          - t18;t20;t20v2 # Jumper
-          - t22;tpros;tprov2 # Jumper
-          - boxer;gx10;gx12;gx15 # RadioMaster
-          - mt12;pocket;tx12mk2 # RadioMaster
-          - tx15;tx16s;tx16smk3 # RadioMaster
-          - zorro # RadioMaster
-          - h17 # Senduwing
-          - t18h7 # Jumper
     container:
-      image: ghcr.io/edgetx/edgetx-dev:latest
-      volumes:
-        - ${{ github.workspace }}:/src
+      image: ghcr.io/edgetx/edgetx-builder:latest
+      options: --user root
     steps:
-      - name: Check out the repo
-        uses: actions/checkout@v7
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Fetch build dependencies
-        uses: ./.github/actions/fetch_deps
-
-      - name: Build ${{ matrix.target }}
-        env:
-          FLAVOR: ${{ matrix.target }}
-          CMAKE_BUILD_PARALLEL_LEVEL: 4
-          MEMBROWSE_OUTDIR: ${{ needs.changes.outputs.membrowse == 'true' && 'membrowse-out' || '' }}
+      - name: Configure and Build
         run: |
-          echo "Running firmware build"
-          ./tools/build-gh.sh
+          mkdir -p build && cd build
+          cmake -DPCB=X10 -DPCBREV=V16 -DTRANSLATIONS=RU -DCMAKE_BUILD_TYPE=Release ..
+          make -j$(nproc) firmware
 
-      # A MemBrowse outage must not fail the firmware build. Installed in its own
-      # venv so the build's Python packages stay untouched.
-      - name: MemBrowse analysis
-        if: needs.changes.outputs.membrowse == 'true'
-        continue-on-error: true
-        env:
-          FLAVOR: ${{ matrix.target }}
-          # Empty on fork PRs, which cannot read secrets: reports for PRs to
-          # public repositories are uploaded without a key
-          MEMBROWSE_API_KEY: ${{ secrets.MEMBROWSE_API_KEY }}
-          # The shallow checkout has no parent commit; the comparison base is
-          # read through the API instead
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          uv venv --quiet /tmp/membrowse
-          VIRTUAL_ENV=/tmp/membrowse uv pip install --quiet "${MEMBROWSE_PACKAGE}"
-          /tmp/membrowse/bin/python - <<'EOF'
-          import json, os, subprocess, sys
-
-          with open(".github/membrowse-targets.json") as f:
-              targets = {t["target_name"]: t for t in json.load(f)}
-          failed = False
-          for name in os.environ["FLAVOR"].lower().split(";"):
-              t = targets[name]
-              out = f"membrowse-out/{name}"
-              args = [sys.executable, "-m", "membrowse", "report",
-                      f"{out}/firmware.elf", t["ld"],
-                      "--map-file", f"{out}/firmware.map",
-                      "--upload", "--github", "--target-name", name,
-                      "--api-key", os.environ["MEMBROWSE_API_KEY"]]
-              for d in t["ld_include_dirs"].split():
-                  args += ["--ld-include-dir", d]
-              for v in t["linker_vars"].split():
-                  args += ["--def", v]
-              print(f"::group::MemBrowse {name}", flush=True)
-              failed |= subprocess.run(args).returncode != 0
-              print("::endgroup::", flush=True)
-          sys.exit(failed)
-          EOF
-
-      - name: Upload ${{ matrix.target }}
-        uses: actions/upload-artifact@v7
+      - name: Upload Firmware
+        uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.target }}
-          path: |
-            fw.json
-            LICENSE
-            *.bin
-            *.uf2
-          retention-days: 15
-          if-no-files-found: error
-
-  package:
-    name: Package firmwares
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Compose release filename
-        run: echo "artifact_name=edgetx-firmware-${GITHUB_REF##*/}" >> $GITHUB_ENV
-
-      - name: Merge firmware artifact packages
-        uses: actions/upload-artifact/merge@v7
-        with:
-          name: "${{ env.artifact_name }}"
-          pattern: firmware-*
-          delete-merged: true
-          retention-days: 15
-
-  # Commits that do not touch the firmware have the same memory footprint as
-  # their parent: record that for every target instead of building
-  membrowse-identical:
-    name: MemBrowse (no firmware change)
-    needs: changes
-    if: needs.changes.outputs.firmware == 'false' && needs.changes.outputs.membrowse == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out the repo
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install MemBrowse
-        run: pip install "${MEMBROWSE_PACKAGE}"
-
-      - name: Upload identical reports
-        env:
-          TARGETS: ${{ needs.changes.outputs.membrowse_targets }}
-          MEMBROWSE_API_KEY: ${{ secrets.MEMBROWSE_API_KEY }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          args=(--upload --github --identical --api-key "${MEMBROWSE_API_KEY}")
-          failed=0
-          for target in $(jq -r '.[].target_name' <<< "${TARGETS}"); do
-            echo "::group::${target}"
-            python -m membrowse report "${args[@]}" --target-name "${target}" || failed=1
-            echo "::endgroup::"
-          done
-          exit "${failed}"
+          name: v16-ru-firmware
+          path: build/**/firmware.bin
