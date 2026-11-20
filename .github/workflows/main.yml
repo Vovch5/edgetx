@@ -1,0 +1,27 @@
+name: Build V16 RU
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/edgetx/edgetx-builder:latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure and Build
+        run: |
+          mkdir build && cd build
+          cmake -DPCB=V16 -DTRANSLATIONS=RU -DCMAKE_BUILD_TYPE=Release ..
+          make -j$(nproc) firmware
+
+      - name: Upload Firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: v16-ru-firmware
+          path: build/arm-none-eabi/firmware.bin
